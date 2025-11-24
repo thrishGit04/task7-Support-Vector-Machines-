@@ -1,0 +1,199 @@
+# ==========================================
+# Task 7 – Support Vector Machines (SVM)
+# ==========================================
+
+# ---- 1. Imports ----
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    classification_report
+)
+
+plt.rcParams["figure.figsize"] = (7, 5)
+
+# ---- 2. Load and prepare dataset ----
+# Make sure 'data.csv' is uploaded in Colab
+df = pd.read_csv("data.csv")
+
+print("First 5 rows:")
+display(df.head())
+print("\nShape:", df.shape)
+
+# Drop unnecessary columns (id and empty column if present)
+cols_to_drop = []
+for col in ["id", "ID", "Unnamed: 32"]:
+    if col in df.columns:
+        cols_to_drop.append(col)
+
+if cols_to_drop:
+    df = df.drop(columns=cols_to_drop)
+
+print("\nColumns after dropping:", df.columns.tolist())
+
+# Target: 'diagnosis' -> map 'M' to 1, 'B' to 0
+y = df["diagnosis"].map({"M": 1, "B": 0})
+X = df.drop(columns=["diagnosis"])
+
+print("\nClass distribution:\n", y.value_counts())
+
+# Train/Test split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# Standardize features (VERY important for SVM)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+print("\nTrain shape:", X_train.shape, " Test shape:", X_test.shape)
+
+# ==========================================
+# 3. Train SVM models (Linear & RBF kernels)
+# ==========================================
+
+# ---- Linear kernel ----
+svm_linear = SVC(kernel="linear", random_state=42)
+svm_linear.fit(X_train_scaled, y_train)
+
+y_pred_linear = svm_linear.predict(X_test_scaled)
+acc_linear = accuracy_score(y_test, y_pred_linear)
+
+print("\n=== SVM (Linear Kernel) ===")
+print("Test Accuracy:", acc_linear)
+print("\nClassification Report:\n", classification_report(y_test, y_pred_linear))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred_linear))
+
+# ---- RBF kernel ----
+svm_rbf = SVC(kernel="rbf", random_state=42)
+svm_rbf.fit(X_train_scaled, y_train)
+
+y_pred_rbf = svm_rbf.predict(X_test_scaled)
+acc_rbf = accuracy_score(y_test, y_pred_rbf)
+
+print("\n=== SVM (RBF Kernel, default C & gamma) ===")
+print("Test Accuracy:", acc_rbf)
+print("\nClassification Report:\n", classification_report(y_test, y_pred_rbf))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred_rbf))
+
+# ==========================================
+# 4. Visualize Decision Boundary (2D)
+#    Use two features for 2D plot
+# ==========================================
+
+# Choose two informative features (feel free to change)
+# e.g. radius_mean & texture_mean
+feature_1 = "radius_mean"
+feature_2 = "texture_mean"
+
+if feature_1 not in X.columns or feature_2 not in X.columns:
+    # fallback to first two features
+    feature_1, feature_2 = X.columns[:2]
+
+print(f"\nUsing features for 2D decision boundary: {feature_1}, {feature_2}")
+
+X_2d = df[[feature_1, feature_2]].values
+y_2d = y.values
+
+# Scale 2D features
+scaler_2d = StandardScaler()
+X_2d_scaled = scaler_2d.fit_transform(X_2d)
+
+# Train SVM with RBF kernel on 2D data
+svm_2d = SVC(kernel="rbf", gamma="scale", C=1.0, random_state=42)
+svm_2d.fit(X_2d_scaled, y_2d)
+
+# Create a mesh grid for plotting
+x_min, x_max = X_2d_scaled[:, 0].min() - 1, X_2d_scaled[:, 0].max() + 1
+y_min, y_max = X_2d_scaled[:, 1].min() - 1, X_2d_scaled[:, 1].max() + 1
+xx, yy = np.meshgrid(
+    np.linspace(x_min, x_max, 400),
+    np.linspace(y_min, y_max, 400)
+)
+
+grid = np.c_[xx.ravel(), yy.ravel()]
+Z = svm_2d.predict(grid).reshape(xx.shape)
+
+# Plot decision boundary
+plt.figure(figsize=(7, 6))
+plt.contourf(xx, yy, Z, alpha=0.3, cmap="coolwarm")
+
+# Scatter original points
+for label, color, name in [(0, "blue", "Benign"), (1, "red", "Malignant")]:
+    plt.scatter(
+        X_2d_scaled[y_2d == label, 0],
+        X_2d_scaled[y_2d == label, 1],
+        label=name,
+        edgecolor="k",
+        alpha=0.7,
+        s=30,
+        c=color
+    )
+
+plt.xlabel(f"{feature_1} (standardized)")
+plt.ylabel(f"{feature_2} (standardized)")
+plt.title("SVM (RBF Kernel) Decision Boundary – 2D")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# ==========================================
+# 5. Hyperparameter Tuning (C & gamma) with GridSearchCV
+# ==========================================
+
+param_grid = {
+    "C": [0.1, 1, 10, 100],
+    "gamma": [0.001, 0.01, 0.1, 1],
+    "kernel": ["rbf"]
+}
+
+svm_grid = SVC(random_state=42)
+grid_search = GridSearchCV(
+    svm_grid,
+    param_grid,
+    cv=5,
+    scoring="accuracy",
+    n_jobs=-1
+)
+
+grid_search.fit(X_train_scaled, y_train)
+
+print("\n=== Grid Search Results (RBF SVM) ===")
+print("Best Parameters:", grid_search.best_params_)
+print("Best CV Accuracy:", grid_search.best_score_)
+
+# Evaluate best model on test set
+best_svm = grid_search.best_estimator_
+y_pred_best = best_svm.predict(X_test_scaled)
+acc_best = accuracy_score(y_test, y_pred_best)
+
+print("\n=== Best RBF SVM on Test Set ===")
+print("Test Accuracy:", acc_best)
+print("\nClassification Report:\n", classification_report(y_test, y_pred_best))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred_best))
+
+# ==========================================
+# 6. Cross-Validation Evaluation (final model)
+# ==========================================
+
+cv_scores = cross_val_score(
+    best_svm,
+    X, y,
+    cv=5,
+    scoring="accuracy",
+    n_jobs=-1
+)
+
+print("\n=== Cross-Validation (Best RBF SVM) ===")
+print("CV Scores:", cv_scores)
+print("Mean CV Accuracy:", cv_scores.mean())
+print("Std Dev:", cv_scores.std())
+
+print("\nTask 7 – SVM pipeline completed")
